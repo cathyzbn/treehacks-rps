@@ -1,7 +1,7 @@
 import cv2
 import mediapipe as mp
 from player_pose import *
-from gesture_classifier import *
+from gesture_classification import *
 from helpers import *
 
 
@@ -13,14 +13,15 @@ scissors_gesture = cv2.resize(cv2.imread("assets/scissors.png"), GES_SIZE)
 
 VISIBILITY_THRESHOLD = 0.8
 
-def execute():
+def execute(model_path, flip=False):
     mp_pose = mp.solutions.pose
     mp_hands = mp.solutions.hands
     player_pose = PlayerPose()
-    gesture_classifier = GestureClassifier()
+    gc = GestureClassifier()
+    gc.load_model(model_path)
 
     next_move = None
-    def get_result_frame(frame, pose, hand, mp_pose, pose_classifier, gesture_classifier):
+    def get_result_frame(frame, pose, hand, mp_pose, player_pose, gc):
         nonlocal next_move
         landmarks = pose.pose_world_landmarks
         if not landmarks:
@@ -46,7 +47,7 @@ def execute():
             return frame
         
         if next_move is None:
-            next_move = gesture_classifier.classify_gesture(hand.multi_hand_landmarks[0])
+            next_move = gc.pred(hand.multi_hand_landmarks[0])
             
         if next_move == 0:
             return overlay_image(frame, scissors_gesture)
@@ -56,23 +57,27 @@ def execute():
             return overlay_image(frame, paper_gesture)
     
     cap = cv2.VideoCapture(0)
-    with mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5) as pose:
-        with mp_hands.Hands(max_num_hands=1, min_detection_confidence=0.1, min_tracking_confidence=0.1) as hand:
-            while cap.isOpened():
-                success, frame = cap.read()
-                if not success:
-                    continue
+    pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
+    hand = mp_hands.Hands(max_num_hands=1, min_detection_confidence=0.1, min_tracking_confidence=0.1)
+    while cap.isOpened():
+        success, frame = cap.read()
+        if not success:
+            continue
 
-                image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                p = pose.process(image)
-                h = hand.process(cv2.flip(image, 1))
+        image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        p = pose.process(image)
+        if flip:
+            h = hand.process(cv2.flip(image, 1))
+        else:
+            h = hand.process(image)
 
-                show_img = get_result_frame(frame, p, h, mp_pose, player_pose, gesture_classifier)
-                cv2.imshow("Let\'s play Rock, Paper, Scissors!", show_img)
+        show_img = get_result_frame(frame, p, h, mp_pose, player_pose, gc)
+        cv2.imshow("Let\'s play Rock, Paper, Scissors!", show_img)
 
-                if cv2.waitKey(5) & 0xFF == 27:
-                    break
+        key = cv2.waitKey(1)
+        if key_equal(key, 'q'):
+            break
     cap.release()
 
 if __name__ == "__main__":
-    execute()
+    execute('model/gc_v1.h5', False)
